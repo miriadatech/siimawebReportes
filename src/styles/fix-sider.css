@@ -1,0 +1,7 @@
+/* Fuerza el Sider a permanecer visible con 220px siempre */
+.ant-layout-sider {
+  flex: 0 0 220px !important;
+  max-width: 220px !important;
+  min-width: 220px !important;
+  width: 220px !important;
+}
