@@ -11,6 +11,7 @@ import {
   Typography,
   Tooltip,
   Empty,
+  Form,
 } from "antd";
 import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
 import {
@@ -319,43 +320,55 @@ function downloadCSVOrdered(rows: ReportRow[], filename = "reporte_202.csv") {
    Componente principal
    ========================= */
 const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
+  const [form] = Form.useForm();
+
   const [entidades, setEntidades] = useState<Entidad[]>([]);
   const [ciclos, setCiclos] = useState<CicloDeVida[]>([]);
+
+  // Estados canónicos (por si los necesitas en otros lados)
   const [entidadId, setEntidadId] = useState<number | undefined>(undefined);
   const [cicloVida, setCicloVida] = useState<number | undefined>(undefined);
 
+  // Tabla / datos
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [total, setTotal] = useState(0);
-
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-
   const [columns, setColumns] = useState<ColumnsType<ReportRow>>([]);
 
   const lastQueryRef = useRef<{ entidadId?: number; cicloVida?: number }>({});
-
+  const entidadCodigoRef = useRef<string | undefined>(undefined);
   const searchTimeout = useRef<number | null>(null);
 
   const authHeaders = useMemo(
-    () =>
-      token
-        ? {
-            Authorization: `Bearer ${token}`,
-          }
-        : {},
+    () => (token ? { Authorization: `Bearer ${token}` } : {}),
     [token]
   );
 
+  /* =========================
+     Watchers del Form
+     ========================= */
+  const watchedEntidadId = Form.useWatch<number | undefined>("entidadId", form);
+  const watchedCicloVida = Form.useWatch<number | undefined>("cicloVida", form);
+
+  useEffect(() => {
+    setEntidadId(typeof watchedEntidadId === "number" ? watchedEntidadId : undefined);
+  }, [watchedEntidadId]);
+
+  useEffect(() => {
+    setCicloVida(typeof watchedCicloVida === "number" ? watchedCicloVida : undefined);
+  }, [watchedCicloVida]);
+
+  /* =========================
+     Carga inicial opciones
+     ========================= */
   const loadEntidades = useCallback(
     async (q?: string) => {
       try {
         const { data } = await axios.get<Entidad[]>(
           `${apiBaseUrl}/reportesms/allentidades`,
-          {
-            params: q ? { q } : undefined,
-            headers: { ...authHeaders },
-          }
+          { params: q ? { q } : undefined, headers: { ...authHeaders } }
         );
         setEntidades(data || []);
       } catch (e) {
@@ -373,9 +386,7 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
         `${apiBaseUrl}/reportes/202/getciclosvida`,
         { headers: { ...authHeaders } }
       );
-      if (Array.isArray(data) && data.length > 0) {
-        setCiclos(data);
-      }
+      if (Array.isArray(data) && data.length > 0) setCiclos(data);
     } catch (e) {
       console.error(e);
       message.error("No se pudieron cargar los ciclos de vida.");
@@ -387,17 +398,27 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
     loadCiclos();
   }, [loadEntidades, loadCiclos]);
 
+  /* =========================
+     Persistencia
+     ========================= */
   useEffect(() => {
     const saved = localStorage.getItem("rep202_filters");
     if (saved) {
       const s = JSON.parse(saved);
-      setEntidadId(s.entidadId ?? undefined);
-      setCicloVida(s.cicloVida ?? undefined);
+      const ent = s.entidadId != null ? Number(s.entidadId) : undefined;
+      const cic = s.cicloVida != null ? Number(s.cicloVida) : undefined;
+
+      // Pinta en el form (dispara watchers y sincroniza estados canónicos)
+      form.setFieldsValue({ entidadId: ent, cicloVida: cic });
+
+      // Tabla
       setPage(s.page ?? 1);
       setPageSize(s.pageSize ?? 20);
-      lastQueryRef.current = { entidadId: s.entidadId, cicloVida: s.cicloVida };
+
+      // Recuerda último query
+      lastQueryRef.current = { entidadId: ent, cicloVida: cic };
     }
-  }, []);
+  }, [form]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -406,6 +427,9 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
     );
   }, [entidadId, cicloVida, page, pageSize]);
 
+  /* =========================
+     Columnas
+     ========================= */
   const buildFixedColumns = useCallback((): ColumnsType<ReportRow> => {
     return FIELD_ORDER.map((key) => ({
       title: String(key).toUpperCase(),
@@ -417,8 +441,6 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
   }, []);
 
   const loadColumns = useCallback(async () => {
-    // Si quieres seguir usando un endpoint de columnas, puedes intentar aquí.
-    // Si no responde, usamos el orden fijo FIELD_ORDER.
     try {
       const { data } = await axios.get<string[]>(
         `${apiBaseUrl}/reportes/202/columns`,
@@ -436,35 +458,62 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
         setColumns(cols);
         return;
       }
-    } catch (e) {
+    } catch {
       // ignoramos y usamos columnas fijas
     }
     setColumns(buildFixedColumns());
   }, [apiBaseUrl, authHeaders, buildFixedColumns]);
 
   /* =========================
-     Carga de datos
+     Datos (solo al presionar Buscar)
      ========================= */
   const fetchData = useCallback(
     async (params: FetchParams) => {
       setLoading(true);
-      try {
-        console.log(entidadId)
-        const { data } = await axios.get<ApiListResponse>(
-          `${apiBaseUrl}/reportesms/202/datareport202/report-pra-infancia`,
-          {
-            headers: { ...authHeaders },
-            params: {
-              entidadId: entidadId,
-              cicloVida: params.cicloVida,
-              page: params.page,
-              pageSize: params.pageSize,
-            },
-          }
-        );
 
-        setRows(data.data || []);
-        setTotal(data.total || 0);
+      // ¡Usar SIEMPRE params.cicloVida para decidir el endpoint!
+      const ciclo = Number(params.cicloVida);
+      let urlApi = "";
+
+      switch (ciclo) {
+        case 1:
+          urlApi = `${apiBaseUrl}/reportesms/202/datareport202/report-pra-infancia`;
+          break;
+        case 2:
+          urlApi = `${apiBaseUrl}/reportesms/202/datareport202/report-infancia`;
+          break;
+        case 3:
+          urlApi = `${apiBaseUrl}/reportesms/202/datareport202/report-adolescencia`;
+          break;
+        case 4:
+          urlApi = `${apiBaseUrl}/reportesms/202/datareport202/report-juventud`;
+          break;
+        case 5:
+          urlApi = `${apiBaseUrl}/reportesms/202/datareport202/report-adultez`;
+          break;
+        case 6:
+          urlApi = `${apiBaseUrl}/reportesms/202/datareport202/report-vejez`;
+          break;
+        default:
+          urlApi = `${apiBaseUrl}/reportesms/202/datareport202/report-pra-infancia`;
+          break;
+      }
+
+      try {
+        const { data } = await axios.get<ApiListResponse>(urlApi, {
+          headers: { ...authHeaders },
+          params: {
+            // ¡Usar SIEMPRE los params recibidos!
+            entidadId: params.entidadId,
+            cicloVida: params.cicloVida,
+            page: 1,
+            pageSize: 100000, // grande para traer todo
+          },
+        });
+
+        const full = data.data || [];
+        setRows(full);
+        setTotal(full.length); // total local
 
         if (columns.length === 0) {
           await loadColumns();
@@ -480,60 +529,46 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
     [apiBaseUrl, authHeaders, columns.length, loadColumns]
   );
 
-  // Acción Buscar
   const handleBuscar = useCallback(() => {
-    setPage(1);
-    lastQueryRef.current = { entidadId, cicloVida };
-    fetchData({ entidadId, cicloVida, page: 1, pageSize });
-  }, [entidadId, cicloVida, pageSize, fetchData]);
+    // Leemos DIRECTO del Form para evitar carreras de estado
+    const ent: number | undefined = form.getFieldValue("entidadId");
+    const cic: number | undefined = form.getFieldValue("cicloVida");
 
-  // Paginación
+    if (ent == null || cic == null) {
+      message.warning("Selecciona una entidad y un ciclo de vida.");
+      return;
+    }
+
+    setEntidadId(ent);
+    setCicloVida(cic);
+
+    setPage(1);
+    lastQueryRef.current = { entidadId: ent, cicloVida: cic };
+
+    fetchData({ entidadId: ent, cicloVida: cic, page: 1, pageSize });
+  }, [form, pageSize, fetchData]);
+
+  // Paginación local
   const handleTableChange = useCallback(
     (pagination: TablePaginationConfig) => {
       const newPage = pagination.current || 1;
       const newPageSize = pagination.pageSize || pageSize;
       setPage(newPage);
       setPageSize(newPageSize);
-      const q = lastQueryRef.current;
-      fetchData({
-        entidadId: q.entidadId,
-        cicloVida: q.cicloVida,
-        page: newPage,
-        pageSize: newPageSize,
-      });
     },
-    [fetchData, pageSize]
+    [pageSize]
   );
 
-  // Exportar CSV con el último query (mismo endpoint, pageSize grande)
+  // Export local (sin volver a consultar)
   const handleExport = useCallback(async () => {
-    const q = lastQueryRef.current;
-    try {
-      const { data } = await axios.get<ApiListResponse>(
-        `${apiBaseUrl}/reportes/202/datareport202`,
-        {
-          headers: { ...authHeaders },
-          params: {
-            entidadId: q.entidadId,
-            cicloVida: q.cicloVida,
-            page: 1,
-            pageSize: 100000,
-          },
-        }
-      );
-      const list = data.data || [];
-      if (list.length === 0) {
-        message.info("No hay registros para exportar con los filtros actuales.");
-        return;
-      }
-      downloadCSVOrdered(list, "reporte_202.csv");
-    } catch (e) {
-      console.error(e);
-      message.error("No se pudo exportar el CSV.");
+    if (!rows.length) {
+      message.info("No hay registros para exportar con los filtros actuales.");
+      return;
     }
-  }, [apiBaseUrl, authHeaders]);
+    downloadCSVOrdered(rows, "reporte_202.csv");
+  }, [rows]);
 
-  // Búsqueda remota de entidades
+  // Búsqueda remota de entidades (debounce)
   const handleSearchEntidad = useCallback(
     (value: string) => {
       const v = value?.trim();
@@ -545,8 +580,33 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
     [loadEntidades]
   );
 
-  // Columnas a UI (ya incluyen width 160)
+  // Columnas y paginado local
   const tableColumns = useMemo(() => columns, [columns]);
+  const paginatedRows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
+    return rows.slice(start, end);
+  }, [rows, page, pageSize]);
+
+  // Opciones combos
+  const entidadOptions = useMemo(
+    () =>
+      entidades.map((e) => ({
+        value: Number(e.id),
+        label: e.codigo ? `${e.nombre} (${e.codigo})` : e.nombre,
+        codigo: e.codigo,
+      })),
+    [entidades]
+  );
+
+  const cicloOptions = useMemo(
+    () =>
+      ciclos.map((c) => ({
+        value: Number(c.id),
+        label: c.nombre,
+      })),
+    [ciclos]
+  );
 
   return (
     <div style={{ padding: 12 }}>
@@ -569,6 +629,7 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
                   <Button
                     icon={<ReloadOutlined />}
                     onClick={() => {
+                      form.resetFields(["entidadId", "cicloVida"]);
                       setEntidadId(undefined);
                       setCicloVida(undefined);
                       setRows([]);
@@ -576,6 +637,7 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
                       setPage(1);
                       setPageSize(20);
                       lastQueryRef.current = {};
+                      entidadCodigoRef.current = undefined;
                     }}
                   />
                 </Tooltip>
@@ -591,54 +653,57 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
               </Space>
             }
           >
-            <Row gutter={[12, 12]}>
-              <Col xs={24} md={12} lg={8}>
-                <Text style={{ display: "block", marginBottom: 6 }}>Entidad</Text>
-                <Select<number>
-                  showSearch
-                  allowClear
-                  placeholder="Selecciona una entidad"
-                  value={entidadId}
-                  onChange={(v) => setEntidadId(v)}
-                  onSearch={handleSearchEntidad}
-                  filterOption={false}
-                  options={entidades.map((e) => ({
-                    value: e.id,
-                    label: e.codigo ? `${e.nombre} (${e.codigo})` : e.nombre,
-                  }))}
-                  style={{ width: "100%" }}
-                />
-              </Col>
+            {/* Filtros controlados por Form */}
+            <Form form={form} layout="vertical">
+              <Row gutter={[12, 12]}>
+                <Col xs={24} md={12} lg={8}>
+                  <Form.Item label="Entidad" name="entidadId">
+                    <Select
+                      showSearch
+                      allowClear
+                      placeholder="Selecciona una entidad"
+                      onSearch={handleSearchEntidad}
+                      filterOption={false}
+                      optionFilterProp="label"
+                      options={entidadOptions}
+                      style={{ width: "100%" }}
+                      onSelect={(val, option) => {
+                        entidadCodigoRef.current = (option as any)?.codigo;
+                      }}
+                      onClear={() => {
+                        entidadCodigoRef.current = undefined;
+                      }}
+                    />
+                  </Form.Item>
+                </Col>
 
-              <Col xs={24} md={12} lg={8}>
-                <Text style={{ display: "block", marginBottom: 6 }}>
-                  Ciclo de vida
-                </Text>
-                <Select<number>
-                  allowClear
-                  placeholder="Selecciona un ciclo de vida"
-                  value={cicloVida}
-                  onChange={(v) => setCicloVida(v)}
-                  options={ciclos.map((c) => ({ value: c.id, label: c.nombre }))}
-                  style={{ width: "100%" }}
-                />
-              </Col>
+                <Col xs={24} md={12} lg={8}>
+                  <Form.Item label="Ciclo de vida" name="cicloVida">
+                    <Select
+                      allowClear
+                      placeholder="Selecciona un ciclo de vida"
+                      optionFilterProp="label"
+                      options={cicloOptions}
+                      style={{ width: "100%" }}
+                    />
+                  </Form.Item>
+                </Col>
 
-              <Col xs={24} md={12} lg={8}>
-                <Text style={{ display: "block", marginBottom: 6, opacity: 0 }}>
-                  _
-                </Text>
-                <Button
-                  type="primary"
-                  icon={<SearchOutlined />}
-                  onClick={handleBuscar}
-                  block
-                  style={{ maxWidth: "85px" }}
-                >
-                  Buscar
-                </Button>
-              </Col>
-            </Row>
+                <Col xs={24} md={12} lg={8}>
+                  <Form.Item label=" " colon={false}>
+                    <Button
+                      type="primary"
+                      icon={<SearchOutlined />}
+                      onClick={handleBuscar}
+                      block
+                      style={{ maxWidth: "85px" }}
+                    >
+                      Buscar
+                    </Button>
+                  </Form.Item>
+                </Col>
+              </Row>
+            </Form>
           </Card>
         </Col>
 
@@ -648,7 +713,7 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
               size="middle"
               rowKey={(r) => String(r.consulta_id ?? Math.random())}
               columns={tableColumns}
-              dataSource={rows}
+              dataSource={paginatedRows}
               loading={loading}
               sticky
               pagination={{
