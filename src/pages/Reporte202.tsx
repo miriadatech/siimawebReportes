@@ -1,3 +1,4 @@
+// src/features/reporte202/Reporte202.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Card,
@@ -12,335 +13,89 @@ import {
   Tooltip,
   Empty,
   Form,
+  DatePicker,
 } from "antd";
 import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
 import {
   FileTextOutlined,
   ReloadOutlined,
-  DownloadOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
 import axios, { AxiosError } from "axios";
+import dayjs from "dayjs";
 
-const { Title, Text } = Typography;
+import { getDefaultCurrentQuarterRange } from "../features/reporte202/dateUtils";
+import { buildColumnsFromSpec, normalizeRowsByCiclo } from "../features/reporte202/tableUtils";
+import { COMMON_DISPLAY_COLS } from "../features/reporte202/displayConfig";
+import { exportRes202CSV } from "../features/reporte202/exportUtils";
+import type { CanonicalRow, RawRow } from "../features/reporte202/cicloConfig";
+
+const { Title } = Typography;
 
 /* =========================
-   Tipos
+   Tipos de apoyo
    ========================= */
-interface ReportRow {
-  consulta_id: number;
-  afiliados_id: number;
-  pacientes_id: number;
-  fecha_consulta: string;
-  tipo_documento: string;
-  documento: string;
-  nombres: string;
-  segundo_nombre: string;
-  apellidos: string;
-  segundo_apellido: string;
-  genero: string;
-  escolaridad_nombre: string;
-  fecha_nacimiento: string;
-  edad_anios: number;
-  peso_kg: string;
-  talla: string;
-  Respuesta_al_estimulo_sonoro: string;
-  Agudeza_Visual_OI: string;
-  Agudeza_Visual_OD: string;
-  Resultados_EAD3: string;
-
-  ResultadoTipoTexto_907008: string;
-  ResultadoTipoFecha_907008: string;
-  ResultadoTipoNumerico_907008: string;
-
-  ResultadoTipoTexto_452301: string;
-  ResultadoTipoFecha_452301: string;
-  ResultadoTipoNumerico_452301: string;
-
-  ResultadoTipoTexto_452305: string;
-  ResultadoTipoFecha_452305: string;
-  ResultadoTipoNumerico_452305: string;
-
-  ResultadoTipoTexto_906263: string;
-  ResultadoTipoFecha_906263: string;
-  ResultadoTipoNumerico_906263: string;
-
-  ResultadoTipoTexto_673201: string;
-  ResultadoTipoFecha_673201: string;
-  ResultadoTipoNumerico_673201: string;
-
-  ResultadoTipoTexto_903841: string;
-  ResultadoTipoFecha_903841: string;
-  ResultadoTipoNumerico_903841: string;
-
-  ResultadoTipoTexto_903817: string;
-  ResultadoTipoFecha_903817: string;
-  ResultadoTipoNumerico_903817: string;
-
-  ResultadoTipoTexto_906610: string;
-  ResultadoTipoFecha_906610: string;
-  ResultadoTipoNumerico_906610: string;
-
-  ResultadoTipoTexto_906611: string;
-  ResultadoTipoFecha_906611: string;
-  ResultadoTipoNumerico_906611: string;
-
-  ResultadoTipoTexto_906317: string;
-  ResultadoTipoFecha_906317: string;
-  ResultadoTipoNumerico_906317: string;
-
-  ResultadoTipoTexto_906915: string;
-  ResultadoTipoFecha_906915: string;
-  ResultadoTipoNumerico_906915: string;
-
-  ResultadoTipoTexto_906249: string;
-  ResultadoTipoFecha_906249: string;
-  ResultadoTipoNumerico_906249: string;
-
-  ResultadoTipoTexto_908890: string;
-  ResultadoTipoFecha_908890: string;
-  ResultadoTipoNumerico_908890: string;
-
-  ResultadoTipoTexto_702203: string;
-  ResultadoTipoFecha_702203: string;
-  ResultadoTipoNumerico_702203: string;
-
-  ResultadoTipoTexto_898101: string;
-  ResultadoTipoFecha_898101: string;
-  ResultadoTipoNumerico_898101: string;
-
-  ResultadoTipoTexto_903815: string;
-  ResultadoTipoFecha_903815: string;
-  ResultadoTipoNumerico_903815: string;
-
-  ResultadoTipoTexto_881201: string;
-  ResultadoTipoFecha_881201: string;
-  ResultadoTipoNumerico_881201: string;
-
-  ResultadoTipoTexto_903868: string;
-  ResultadoTipoFecha_903868: string;
-  ResultadoTipoNumerico_903868: string;
-
-  ResultadoTipoTexto_851102: string;
-  ResultadoTipoFecha_851102: string;
-  ResultadoTipoNumerico_851102: string;
-
-  ResultadoTipoTexto_902210: string;
-  ResultadoTipoFecha_902210: string;
-  ResultadoTipoNumerico_902210: string;
-
-  ResultadoTipoTexto_903895: string;
-  ResultadoTipoFecha_903895: string;
-  ResultadoTipoNumerico_903895: string;
-
-  ResultadoTipoTexto_901101: string;
-  ResultadoTipoFecha_901101: string;
-  ResultadoTipoNumerico_901101: string;
-}
-
 interface Entidad {
   id: number;
   nombre: string;
   codigo?: string;
 }
-
-interface FetchParams {
-  entidadId?: number;
-  cicloVida?: number;
-  page: number;
-  pageSize: number;
-}
-
-interface ApiListResponse {
-  data: ReportRow[];
-  total: number;
-}
-
-interface Reporte202Props {
-  apiBaseUrl: string;
-  token?: string | null;
-}
-
 interface CicloDeVida {
   id: number;
   nombre: string;
   edadMinAnios: number | null;
   edadMaxAnios: number | null;
 }
-
-/* =========================
-   Orden fijo de columnas/CSV
-   ========================= */
-const FIELD_ORDER: (keyof ReportRow)[] = [
-  "consulta_id",
-  "afiliados_id",
-  "pacientes_id",
-  "fecha_consulta",
-  "tipo_documento",
-  "documento",
-  "nombres",
-  "segundo_nombre",
-  "apellidos",
-  "segundo_apellido",
-  "genero",
-  "escolaridad_nombre",
-  "fecha_nacimiento",
-  "edad_anios",
-  "peso_kg",
-  "talla",
-  "Respuesta_al_estimulo_sonoro",
-  "Agudeza_Visual_OI",
-  "Agudeza_Visual_OD",
-  "Resultados_EAD3",
-
-  "ResultadoTipoTexto_907008",
-  "ResultadoTipoFecha_907008",
-  "ResultadoTipoNumerico_907008",
-
-  "ResultadoTipoTexto_452301",
-  "ResultadoTipoFecha_452301",
-  "ResultadoTipoNumerico_452301",
-
-  "ResultadoTipoTexto_452305",
-  "ResultadoTipoFecha_452305",
-  "ResultadoTipoNumerico_452305",
-
-  "ResultadoTipoTexto_906263",
-  "ResultadoTipoFecha_906263",
-  "ResultadoTipoNumerico_906263",
-
-  "ResultadoTipoTexto_673201",
-  "ResultadoTipoFecha_673201",
-  "ResultadoTipoNumerico_673201",
-
-  "ResultadoTipoTexto_903841",
-  "ResultadoTipoFecha_903841",
-  "ResultadoTipoNumerico_903841",
-
-  "ResultadoTipoTexto_903817",
-  "ResultadoTipoFecha_903817",
-  "ResultadoTipoNumerico_903817",
-
-  "ResultadoTipoTexto_906610",
-  "ResultadoTipoFecha_906610",
-  "ResultadoTipoNumerico_906610",
-
-  "ResultadoTipoTexto_906611",
-  "ResultadoTipoFecha_906611",
-  "ResultadoTipoNumerico_906611",
-
-  "ResultadoTipoTexto_906317",
-  "ResultadoTipoFecha_906317",
-  "ResultadoTipoNumerico_906317",
-
-  "ResultadoTipoTexto_906915",
-  "ResultadoTipoFecha_906915",
-  "ResultadoTipoNumerico_906915",
-
-  "ResultadoTipoTexto_906249",
-  "ResultadoTipoFecha_906249",
-  "ResultadoTipoNumerico_906249",
-
-  "ResultadoTipoTexto_908890",
-  "ResultadoTipoFecha_908890",
-  "ResultadoTipoNumerico_908890",
-
-  "ResultadoTipoTexto_702203",
-  "ResultadoTipoFecha_702203",
-  "ResultadoTipoNumerico_702203",
-
-  "ResultadoTipoTexto_898101",
-  "ResultadoTipoFecha_898101",
-  "ResultadoTipoNumerico_898101",
-
-  "ResultadoTipoTexto_903815",
-  "ResultadoTipoFecha_903815",
-  "ResultadoTipoNumerico_903815",
-
-  "ResultadoTipoTexto_881201",
-  "ResultadoTipoFecha_881201",
-  "ResultadoTipoNumerico_881201",
-
-  "ResultadoTipoTexto_903868",
-  "ResultadoTipoFecha_903868",
-  "ResultadoTipoNumerico_903868",
-
-  "ResultadoTipoTexto_851102",
-  "ResultadoTipoFecha_851102",
-  "ResultadoTipoNumerico_851102",
-
-  "ResultadoTipoTexto_902210",
-  "ResultadoTipoFecha_902210",
-  "ResultadoTipoNumerico_902210",
-
-  "ResultadoTipoTexto_903895",
-  "ResultadoTipoFecha_903895",
-  "ResultadoTipoNumerico_903895",
-
-  "ResultadoTipoTexto_901101",
-  "ResultadoTipoFecha_901101",
-  "ResultadoTipoNumerico_901101",
-];
-
-/* =========================
-   Utilidades
-   ========================= */
-function downloadCSVOrdered(rows: ReportRow[], filename = "reporte_202.csv") {
-  if (!rows || rows.length === 0) {
-    message.warning("No hay datos para exportar.");
-    return;
-  }
-  const headers = FIELD_ORDER as string[];
-  const csvRows = [
-    headers.join(","),
-    ...rows.map((r) =>
-      headers
-        .map((h) => {
-          const v = (r as any)[h];
-          if (v === null || v === undefined) return "";
-          const s = String(v).replace(/"/g, '""');
-          if (/[",\n]/.test(s)) return `"${s}"`;
-          return s;
-        })
-        .join(",")
-    ),
-  ];
-  const blob = new Blob([csvRows.join("\n")], {
-    type: "text/csv;charset=utf-8;",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+interface Reporte202Props {
+  apiBaseUrl: string;
+  token?: string | null;
+}
+interface ApiListResponse<T = RawRow> {
+  data: T[];
+  total: number;
+}
+interface FetchParams {
+  entidadId?: number;
+  cicloVida?: number;
+  page: number;
+  pageSize: number;
+  startDate?: string; // YYYY-MM-DD
+  endDate?: string;   // YYYY-MM-DD
 }
 
 /* =========================
-   Componente principal
+   Componente
    ========================= */
 const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
   const [form] = Form.useForm();
 
+  // Combos
   const [entidades, setEntidades] = useState<Entidad[]>([]);
   const [ciclos, setCiclos] = useState<CicloDeVida[]>([]);
 
-  // Estados canónicos (por si los necesitas en otros lados)
+  // Filtros (estado canónico)
   const [entidadId, setEntidadId] = useState<number | undefined>(undefined);
   const [cicloVida, setCicloVida] = useState<number | undefined>(undefined);
 
-  // Tabla / datos
+  // Tabla
   const [loading, setLoading] = useState(false);
-  const [rows, setRows] = useState<ReportRow[]>([]);
+  const [rows, setRows] = useState<CanonicalRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [columns, setColumns] = useState<ColumnsType<ReportRow>>([]);
+  const [columns, setColumns] = useState<ColumnsType<CanonicalRow>>([]);
 
-  const lastQueryRef = useRef<{ entidadId?: number; cicloVida?: number }>({});
+  // Miscelánea
+  const lastQueryRef = useRef<{
+    entidadId?: number;
+    cicloVida?: number;
+    fechaIni?: string;
+    fechaFin?: string;
+  }>({});
   const entidadCodigoRef = useRef<string | undefined>(undefined);
   const searchTimeout = useRef<number | null>(null);
 
+  // Headers auth
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : {}),
     [token]
@@ -361,7 +116,7 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
   }, [watchedCicloVida]);
 
   /* =========================
-     Carga inicial opciones
+     Carga inicial de combos
      ========================= */
   const loadEntidades = useCallback(
     async (q?: string) => {
@@ -372,8 +127,7 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
         );
         setEntidades(data || []);
       } catch (e) {
-        const err = e as AxiosError;
-        console.error(err);
+        console.error(e);
         message.error("No se pudieron cargar las entidades.");
       }
     },
@@ -399,125 +153,117 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
   }, [loadEntidades, loadCiclos]);
 
   /* =========================
-     Persistencia
+     Defaults + persistencia
      ========================= */
+  // Fija las columnas de la VISTA (comunes) una sola vez
+  useEffect(() => {
+    setColumns(buildColumnsFromSpec(COMMON_DISPLAY_COLS));
+  }, []);
+
+  // Defaults de fechas = trimestre actual + restauro persistencia
   useEffect(() => {
     const saved = localStorage.getItem("rep202_filters");
+    const { fechaIni, fechaFin } = getDefaultCurrentQuarterRange();
+
     if (saved) {
       const s = JSON.parse(saved);
       const ent = s.entidadId != null ? Number(s.entidadId) : undefined;
       const cic = s.cicloVida != null ? Number(s.cicloVida) : undefined;
+      const fiStr = typeof s.fechaIni === "string" ? s.fechaIni : fechaIni;
+      const ffStr = typeof s.fechaFin === "string" ? s.fechaFin : fechaFin;
 
-      // Pinta en el form (dispara watchers y sincroniza estados canónicos)
-      form.setFieldsValue({ entidadId: ent, cicloVida: cic });
+      form.setFieldsValue({
+        entidadId: ent,
+        cicloVida: cic,
+        fechaIni: dayjs(fiStr),
+        fechaFin: dayjs(ffStr),
+      });
 
-      // Tabla
       setPage(s.page ?? 1);
       setPageSize(s.pageSize ?? 20);
 
-      // Recuerda último query
-      lastQueryRef.current = { entidadId: ent, cicloVida: cic };
+      lastQueryRef.current = {
+        entidadId: ent,
+        cicloVida: cic,
+        fechaIni: fiStr,
+        fechaFin: ffStr,
+      };
+      return;
     }
+
+    form.setFieldsValue({
+      fechaIni: dayjs(fechaIni),
+      fechaFin: dayjs(fechaFin),
+    });
   }, [form]);
 
+  // Guardar persistencia al cambiar filtros/paginación
   useEffect(() => {
+    const vals = form.getFieldsValue();
     localStorage.setItem(
       "rep202_filters",
-      JSON.stringify({ entidadId, cicloVida, page, pageSize })
+      JSON.stringify({
+        entidadId,
+        cicloVida,
+        page,
+        pageSize,
+        fechaIni: vals?.fechaIni ? vals.fechaIni.format("YYYY-MM-DD") : undefined,
+        fechaFin: vals?.fechaFin ? vals.fechaFin.format("YYYY-MM-DD") : undefined,
+      })
     );
-  }, [entidadId, cicloVida, page, pageSize]);
+  }, [entidadId, cicloVida, page, pageSize, form]);
 
   /* =========================
-     Columnas
+     Utils: endpoint por ciclo
      ========================= */
-  const buildFixedColumns = useCallback((): ColumnsType<ReportRow> => {
-    return FIELD_ORDER.map((key) => ({
-      title: String(key).toUpperCase(),
-      dataIndex: key as string,
-      key: key as string,
-      ellipsis: true,
-      width: 160,
-    }));
-  }, []);
-
-  const loadColumns = useCallback(async () => {
-    try {
-      const { data } = await axios.get<string[]>(
-        `${apiBaseUrl}/reportes/202/columns`,
-        { headers: { ...authHeaders } }
-      );
-
-      if (Array.isArray(data) && data.length > 0) {
-        const cols: ColumnsType<ReportRow> = data.map((key) => ({
-          title: key.toUpperCase(),
-          dataIndex: key,
-          key,
-          ellipsis: true,
-          width: 160,
-        }));
-        setColumns(cols);
-        return;
-      }
-    } catch {
-      // ignoramos y usamos columnas fijas
+  const getUrlByCiclo = (ciclo?: number) => {
+    switch (Number(ciclo)) {
+      case 1:
+        return `${apiBaseUrl}/reportesms/202/datareport202/report-pra-infancia`;
+      case 2:
+        return `${apiBaseUrl}/reportesms/202/datareport202/report-infancia`;
+      case 3:
+        return `${apiBaseUrl}/reportesms/202/datareport202/report-adolescencia`;
+      case 4:
+        return `${apiBaseUrl}/reportesms/202/datareport202/report-juventud`;
+      case 5:
+        return `${apiBaseUrl}/reportesms/202/datareport202/report-adultez`;
+      case 6:
+        return `${apiBaseUrl}/reportesms/202/datareport202/report-vejez`;
+      default:
+        return `${apiBaseUrl}/reportesms/202/datareport202/report-pra-infancia`;
     }
-    setColumns(buildFixedColumns());
-  }, [apiBaseUrl, authHeaders, buildFixedColumns]);
+  };
 
   /* =========================
-     Datos (solo al presionar Buscar)
+     Fetch de datos (una sola petición)
      ========================= */
   const fetchData = useCallback(
     async (params: FetchParams) => {
       setLoading(true);
-
-      // ¡Usar SIEMPRE params.cicloVida para decidir el endpoint!
-      const ciclo = Number(params.cicloVida);
-      let urlApi = "";
-
-      switch (ciclo) {
-        case 1:
-          urlApi = `${apiBaseUrl}/reportesms/202/datareport202/report-pra-infancia`;
-          break;
-        case 2:
-          urlApi = `${apiBaseUrl}/reportesms/202/datareport202/report-infancia`;
-          break;
-        case 3:
-          urlApi = `${apiBaseUrl}/reportesms/202/datareport202/report-adolescencia`;
-          break;
-        case 4:
-          urlApi = `${apiBaseUrl}/reportesms/202/datareport202/report-juventud`;
-          break;
-        case 5:
-          urlApi = `${apiBaseUrl}/reportesms/202/datareport202/report-adultez`;
-          break;
-        case 6:
-          urlApi = `${apiBaseUrl}/reportesms/202/datareport202/report-vejez`;
-          break;
-        default:
-          urlApi = `${apiBaseUrl}/reportesms/202/datareport202/report-pra-infancia`;
-          break;
-      }
+      const urlApi = getUrlByCiclo(params.cicloVida);
 
       try {
-        const { data } = await axios.get<ApiListResponse>(urlApi, {
+        const { data } = await axios.get<ApiListResponse<RawRow>>(urlApi, {
           headers: { ...authHeaders },
           params: {
-            // ¡Usar SIEMPRE los params recibidos!
             entidadId: params.entidadId,
             cicloVida: params.cicloVida,
             page: 1,
-            pageSize: 100000, // grande para traer todo
+            pageSize: 100000, // traemos todo para export
+            startDate: params.startDate,
+            endDate: params.endDate,
+            // por compatibilidad si backend usa estos nombres:
+            fechaIni: params.startDate,
+            fechaFin: params.endDate,
           },
         });
 
-        const full = data.data || [];
-        setRows(full);
-        setTotal(full.length); // total local
-
-        if (columns.length === 0) {
-          await loadColumns();
-        }
+        // Normaliza (si definiste normalizadores por ciclo)
+        const full = (data?.data ?? []) as RawRow[];
+        const normalized = normalizeRowsByCiclo(full, Number(params.cicloVida));
+        setRows(normalized);
+        setTotal(normalized.length);
       } catch (e) {
         const err = e as AxiosError;
         console.error(err);
@@ -526,29 +272,67 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
         setLoading(false);
       }
     },
-    [apiBaseUrl, authHeaders, columns.length, loadColumns]
+    [authHeaders]
   );
 
+  /* =========================
+     Handlers
+     ========================= */
   const handleBuscar = useCallback(() => {
-    // Leemos DIRECTO del Form para evitar carreras de estado
     const ent: number | undefined = form.getFieldValue("entidadId");
     const cic: number | undefined = form.getFieldValue("cicloVida");
+    const fi = form.getFieldValue("fechaIni"); // dayjs
+    const ff = form.getFieldValue("fechaFin"); // dayjs
 
     if (ent == null || cic == null) {
       message.warning("Selecciona una entidad y un ciclo de vida.");
       return;
     }
 
+    const fiStr = fi ? fi.format("YYYY-MM-DD") : undefined;
+    const ffStr = ff ? ff.format("YYYY-MM-DD") : undefined;
+
     setEntidadId(ent);
     setCicloVida(cic);
-
     setPage(1);
-    lastQueryRef.current = { entidadId: ent, cicloVida: cic };
 
-    fetchData({ entidadId: ent, cicloVida: cic, page: 1, pageSize });
+    lastQueryRef.current = {
+      entidadId: ent,
+      cicloVida: cic,
+      fechaIni: fiStr,
+      fechaFin: ffStr,
+    };
+
+    // ÚNICA petición: datos
+    fetchData({
+      entidadId: ent,
+      cicloVida: cic,
+      page: 1,
+      pageSize,
+      startDate: fiStr,
+      endDate: ffStr,
+    });
   }, [form, pageSize, fetchData]);
 
-  // Paginación local
+  const handleReset = useCallback(() => {
+    // Limpia entidad/ciclo y restaura fechas al trimestre actual
+    const { fechaIni, fechaFin } = getDefaultCurrentQuarterRange();
+    form.resetFields(["entidadId", "cicloVida"]);
+    form.setFieldsValue({
+      fechaIni: dayjs(fechaIni),
+      fechaFin: dayjs(fechaFin),
+    });
+
+    setEntidadId(undefined);
+    setCicloVida(undefined);
+    setRows([]);
+    setTotal(0);
+    setPage(1);
+    setPageSize(20);
+    lastQueryRef.current = {};
+    entidadCodigoRef.current = undefined;
+  }, [form]);
+
   const handleTableChange = useCallback(
     (pagination: TablePaginationConfig) => {
       const newPage = pagination.current || 1;
@@ -559,16 +343,6 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
     [pageSize]
   );
 
-  // Export local (sin volver a consultar)
-  const handleExport = useCallback(async () => {
-    if (!rows.length) {
-      message.info("No hay registros para exportar con los filtros actuales.");
-      return;
-    }
-    downloadCSVOrdered(rows, "reporte_202.csv");
-  }, [rows]);
-
-  // Búsqueda remota de entidades (debounce)
   const handleSearchEntidad = useCallback(
     (value: string) => {
       const v = value?.trim();
@@ -580,15 +354,18 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
     [loadEntidades]
   );
 
-  // Columnas y paginado local
-  const tableColumns = useMemo(() => columns, [columns]);
-  const paginatedRows = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    const end = start + pageSize;
-    return rows.slice(start, end);
-  }, [rows, page, pageSize]);
+  const handleExportFull202 = useCallback(() => {
+    if (!rows.length) {
+      message.info("No hay registros para exportar con los filtros actuales.");
+      return;
+    }
+    // Exporta TODO el esquema 202, sin importar las columnas visibles
+    exportRes202CSV(rows as any[], cicloVida, "reporte_202_full.csv");
+  }, [rows, cicloVida]);
 
-  // Opciones combos
+  /* =========================
+     Derivados (memo)
+     ========================= */
   const entidadOptions = useMemo(
     () =>
       entidades.map((e) => ({
@@ -608,6 +385,16 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
     [ciclos]
   );
 
+  const tableColumns = useMemo(() => columns, [columns]);
+  const paginatedRows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
+    return rows.slice(start, end);
+  }, [rows, page, pageSize]);
+
+  /* =========================
+     Render
+     ========================= */
   return (
     <div style={{ padding: 12 }}>
       <Row gutter={[12, 12]}>
@@ -624,36 +411,19 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
               </Space>
             }
             extra={
-              <Space>
-                <Tooltip title="Limpiar filtros">
-                  <Button
-                    icon={<ReloadOutlined />}
-                    onClick={() => {
-                      form.resetFields(["entidadId", "cicloVida"]);
-                      setEntidadId(undefined);
-                      setCicloVida(undefined);
-                      setRows([]);
-                      setTotal(0);
-                      setPage(1);
-                      setPageSize(20);
-                      lastQueryRef.current = {};
-                      entidadCodigoRef.current = undefined;
-                    }}
-                  />
+              <Space wrap>
+                <Tooltip title="Limpiar filtros y volver al trimestre actual">
+                  <Button icon={<ReloadOutlined />} onClick={handleReset} />
                 </Tooltip>
-                <Tooltip title="Exportar CSV">
-                  <Button
-                    icon={<DownloadOutlined />}
-                    onClick={handleExport}
-                    disabled={rows.length === 0}
-                  >
-                    Exportar
+
+                <Tooltip title="Generar CSV con todos los campos de la Resolución 202">
+                  <Button type="primary" onClick={handleExportFull202}>
+                    Generar Reporte 202
                   </Button>
                 </Tooltip>
               </Space>
             }
           >
-            {/* Filtros controlados por Form */}
             <Form form={form} layout="vertical">
               <Row gutter={[12, 12]}>
                 <Col xs={24} md={12} lg={8}>
@@ -667,7 +437,7 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
                       optionFilterProp="label"
                       options={entidadOptions}
                       style={{ width: "100%" }}
-                      onSelect={(val, option) => {
+                      onSelect={(_, option) => {
                         entidadCodigoRef.current = (option as any)?.codigo;
                       }}
                       onClear={() => {
@@ -696,10 +466,24 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
                       icon={<SearchOutlined />}
                       onClick={handleBuscar}
                       block
-                      style={{ maxWidth: "85px" }}
+                      style={{ maxWidth: 120 }}
                     >
                       Buscar
                     </Button>
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              {/* Fechas: 2 DatePicker (no RangePicker) con default = trimestre actual */}
+              <Row gutter={[12, 12]}>
+                <Col xs={24} md={12} lg={8}>
+                  <Form.Item label="Fecha inicial (trimestre actual)" name="fechaIni">
+                    <DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" allowClear={false} />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={12} lg={8}>
+                  <Form.Item label="Fecha final (trimestre actual)" name="fechaFin">
+                    <DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" allowClear={false} />
                   </Form.Item>
                 </Col>
               </Row>
@@ -709,9 +493,9 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
 
         <Col span={24}>
           <Card size="small" style={{ borderRadius: 14 }} styles={{ body: { padding: 0 } }}>
-            <Table<ReportRow>
+            <Table<CanonicalRow>
               size="middle"
-              rowKey={(r) => String(r.consulta_id ?? Math.random())}
+              rowKey={(r) => String(r.consulta_id ?? r.numero_identificacion ?? Math.random())}
               columns={tableColumns}
               dataSource={paginatedRows}
               loading={loading}
