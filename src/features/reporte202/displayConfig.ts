@@ -3,7 +3,7 @@ import type { CanonicalRow, ColSpec } from "./cicloConfig";
 
 /** Columnas comunes y estables para VISTA (no para export) */
 export const COMMON_DISPLAY_COLS: ColSpec[] = [
-  { key: "tipo_identificacion_usuario", title: "Tipo Doc" },
+  { key: "tipo_identificacion_usuario", title: "Tipo Doc",  },
   { key: "numero_identificacion", title: "Documento" },
 
   // Nombre completo por render (usa distintas claves si vienen diferentes)

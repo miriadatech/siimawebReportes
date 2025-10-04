@@ -231,7 +231,7 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
       case 6:
         return `${apiBaseUrl}/reportesms/202/datareport202/report-vejez`;
       default:
-        return `${apiBaseUrl}/reportesms/202/datareport202/report-pra-infancia`;
+        return ``;
     }
   };
 
@@ -242,24 +242,22 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
     async (params: FetchParams) => {
       setLoading(true);
       const urlApi = getUrlByCiclo(params.cicloVida);
-
+      console.log(urlApi)
       try {
         const { data } = await axios.get<ApiListResponse<RawRow>>(urlApi, {
           headers: { ...authHeaders },
           params: {
-            entidadId: params.entidadId,
-            cicloVida: params.cicloVida,
+            entidadId: Number(params.entidadId),
+            cicloVida: Number(params.cicloVida),
             page: 1,
-            pageSize: 100000, // traemos todo para export
+            pageSize: 100000, // traemos todo
             startDate: params.startDate,
             endDate: params.endDate,
-            // por compatibilidad si backend usa estos nombres:
-            fechaIni: params.startDate,
-            fechaFin: params.endDate,
           },
         });
 
         // Normaliza (si definiste normalizadores por ciclo)
+        console.log(data)
         const full = (data?.data ?? []) as RawRow[];
         const normalized = normalizeRowsByCiclo(full, Number(params.cicloVida));
         setRows(normalized);
@@ -477,12 +475,12 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
               {/* Fechas: 2 DatePicker (no RangePicker) con default = trimestre actual */}
               <Row gutter={[12, 12]}>
                 <Col xs={24} md={12} lg={8}>
-                  <Form.Item label="Fecha inicial (trimestre actual)" name="fechaIni">
+                  <Form.Item label="Fecha inicial" name="fechaIni">
                     <DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" allowClear={false} />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={12} lg={8}>
-                  <Form.Item label="Fecha final (trimestre actual)" name="fechaFin">
+                  <Form.Item label="Fecha final" name="fechaFin">
                     <DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" allowClear={false} />
                   </Form.Item>
                 </Col>
