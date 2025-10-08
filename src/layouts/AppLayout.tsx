@@ -1,12 +1,12 @@
 import { Menu, Modal, message } from "antd";
 import type { MenuProps } from "antd";
 import {
-  DashboardOutlined,
+  /* DashboardOutlined, */
   MenuUnfoldOutlined,
   MenuFoldOutlined,
   FileTextOutlined,
   BarChartOutlined,
-  CloudSyncOutlined,
+  /* CloudSyncOutlined, */
   LogoutOutlined,
 } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -22,14 +22,14 @@ export default function AppLayout() {
 
   const items: MenuProps["items"] = useMemo(
     () => [
-      { key: "/app/dashboard", icon: <DashboardOutlined />, label: "Dashboard" },
+      /* { key: "/app/dashboard", icon: <DashboardOutlined />, label: "Dashboard" }, */
       {
         key: "reportes",
         icon: <FileTextOutlined />,
         label: "Reportes",
         children: [
           { key: "/app/reportes/202", icon: <BarChartOutlined />, label: "Reporte 202" },
-          { key: "/app/reportes/etl", icon: <CloudSyncOutlined />, label: "Sincronización" },
+          /* { key: "/app/reportes/etl", icon: <CloudSyncOutlined />, label: "Sincronización" }, */
         ],
       },
       { type: "divider" as const },
