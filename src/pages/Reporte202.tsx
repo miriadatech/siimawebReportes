@@ -18,20 +18,23 @@ import {
   Tooltip,
   Empty,
   Form,
-  DatePicker
+  DatePicker,
+  Tag,
+  Divider
 } from "antd";
 import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
 import {
   FileTextOutlined,
   ReloadOutlined,
   DownloadOutlined,
-  SearchOutlined
+  SearchOutlined,
+  FilterOutlined
 } from "@ant-design/icons";
-import axios, { AxiosError } from "axios";
+import axios from "axios";
 import dayjs from "dayjs";
 import ExcelJS from "exceljs";
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 /* =========================
    Tipos
@@ -105,8 +108,6 @@ interface ReportRow {
 
 interface Entidad { id: number; nombre: string; codigo?: string; }
 interface CicloDeVida { id: number; nombre: string; edadMinAnios: number | null; edadMaxAnios: number | null; }
-
-
 
 interface Reporte202Props {
   apiBaseUrl: string;
@@ -291,8 +292,9 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
   const [entidades, setEntidades] = useState<Entidad[]>([]);
   const [ciclos, setCiclos] = useState<CicloDeVida[]>([]);
 
-  const [entidadId, setEntidadId] = useState<number | undefined>(undefined);
-  const [cicloVida, setCicloVida] = useState<number | undefined>(undefined);
+  // múltiples selecciones
+  const [entidadIds, setEntidadIds] = useState<number[]>([]);
+  const [ciclosVida, setCiclosVida] = useState<number[]>([]);
 
   // spinner del único botón (buscar & acumular)
   const [loadingSearch, setLoadingSearch] = useState(false);
@@ -312,16 +314,20 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
     [token]
   );
 
-  const watchedEntidadId = Form.useWatch<number | undefined>("entidadId", form);
-  const watchedCicloVida = Form.useWatch<number | undefined>("cicloVida", form);
+  const controllerRef = useRef<AbortController | null>(null);
+  const [progress, setProgress] = useState<{done:number,total:number} | null>(null);
+
+  // watchers
+  const watchedEntidadIds = Form.useWatch<number[] | undefined>("entidadId", form);
+  const watchedCiclosVida = Form.useWatch<number[] | undefined>("cicloVida", form);
 
   useEffect(() => {
-    setEntidadId(typeof watchedEntidadId === "number" ? watchedEntidadId : undefined);
-  }, [watchedEntidadId]);
+    setEntidadIds(Array.isArray(watchedEntidadIds) ? watchedEntidadIds.map(Number) : []);
+  }, [watchedEntidadIds]);
 
   useEffect(() => {
-    setCicloVida(typeof watchedCicloVida === "number" ? watchedCicloVida : undefined);
-  }, [watchedCicloVida]);
+    setCiclosVida(Array.isArray(watchedCiclosVida) ? watchedCiclosVida.map(Number) : []);
+  }, [watchedCiclosVida]);
 
   /* =========================
      Carga inicial
@@ -348,7 +354,7 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
         `${apiBaseUrl}/reportes/202/getciclosvida`,
         { headers: { ...authHeaders } }
       );
-        if (Array.isArray(data) && data.length > 0) setCiclos(data);
+      if (Array.isArray(data) && data.length > 0) setCiclos(data);
     } catch (e) {
       console.error(e);
       message.error("No se pudieron cargar los ciclos de vida.");
@@ -361,81 +367,16 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
   }, [loadEntidades, loadCiclos]);
 
   /* =========================
-     Columnas (Entidad/Ciclo + VARs)
-     ========================= */
-  const buildColumns = useCallback((): ColumnsType<ReportRow> => {
-    const extras: ColumnsType<ReportRow> = [
-      { title: "Entidad", dataIndex: "__entidadLabel", key: "__entidadLabel", width: 220, ellipsis: true },
-      { title: "Ciclo de vida", dataIndex: "__cicloNombre", key: "__cicloNombre", width: 180, ellipsis: true },
-    ];
-    const varCols: ColumnsType<ReportRow> = (FIELD_ORDER as string[]).map((extendedKey) => {
-      const match = extendedKey.match(/^VAR(\d+)_/);
-      const n = match ? Number(match[1]) : undefined;
-      const simpleKey = n ? `VAR${n}` : extendedKey;
-      return {
-        title: prettyTitle(extendedKey),
-        dataIndex: simpleKey,
-        key: simpleKey,
-        ellipsis: true,
-        width: 160,
-        render: (value: any) => formatIfDate(value)
-      };
-    });
-    return [...extras, ...varCols];
-  }, []);
-
-  useEffect(() => {
-    setColumns(buildColumns());
-  }, [buildColumns]);
-
-  /* =========================
-     Persistencia + trimestre actual
-     ========================= */
-  useEffect(() => {
-    const saved = localStorage.getItem("rep202_filters");
-    const { start, end } = getCurrentQuarterRange();
-    if (saved) {
-      const s = JSON.parse(saved);
-      form.setFieldsValue({
-        entidadId: s.entidadId != null ? Number(s.entidadId) : undefined,
-        cicloVida: s.cicloVida != null ? Number(s.cicloVida) : undefined,
-        fechaInicio: s.startDate ? dayjs(s.startDate) : start,
-        fechaFin: s.endDate ? dayjs(s.endDate) : end
-      });
-      setPage(s.page ?? 1);
-      setPageSize(s.pageSize ?? 20);
-    } else {
-      form.setFieldsValue({ fechaInicio: start, fechaFin: end });
-    }
-  }, [form]);
-
-  useEffect(() => {
-    const inicio = form.getFieldValue("fechaInicio") as dayjs.Dayjs | undefined;
-    const fin = form.getFieldValue("fechaFin") as dayjs.Dayjs | undefined;
-    localStorage.setItem(
-      "rep202_filters",
-      JSON.stringify({
-        entidadId,
-        cicloVida,
-        page,
-        pageSize,
-        startDate: inicio ? inicio.format("YYYY-MM-DD") : undefined,
-        endDate: fin ? fin.format("YYYY-MM-DD") : undefined
-      })
-    );
-  }, [entidadId, cicloVida, page, pageSize, form]);
-
-  /* =========================
      Etiquetas y orden
      ========================= */
-
   const getEntidadLabel = useCallback((id?: number) => {
-    if (!id) return "";
+    if (!id && id !== 0) return "";
     const e = entidades.find(x => Number(x.id) === Number(id));
     return e ? e.nombre : String(id);
   }, [entidades]);
 
   const getCicloNombre = useCallback((id?: number) => {
+    if (!id && id !== 0) return "";
     const c = ciclos.find(x => Number(x.id) === Number(id));
     return c?.nombre || String(id ?? "");
   }, [ciclos]);
@@ -476,12 +417,113 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
     });
 
   /* =========================
-     Fetch genérico
+     Columnas (Entidad/Ciclo + VARs) — muestra NOMBRE aunque llegue solo id
+     ========================= */
+  const buildColumns = useCallback((): ColumnsType<ReportRow> => {
+    const extras: ColumnsType<ReportRow> = [
+      {
+        title: "Entidad",
+        key: "__entidadLabel",
+        width: 220,
+        ellipsis: true,
+        render: (_: any, r: ReportRow) => {
+          const entId =
+            (r as any).__entidadId ??
+            (r as any).entidad_id ??
+            undefined;
+          const label =
+            (r as any).__entidadLabel ??
+            getEntidadLabel(Number(entId));
+          return label || (entId != null ? String(entId) : "");
+        },
+      },
+      {
+        title: "Ciclo de vida",
+        key: "__cicloNombre",
+        width: 180,
+        ellipsis: true,
+        render: (_: any, r: ReportRow) => {
+          const cicId =
+            (r as any).__cicloId ??
+            (r as any).__ciclo_id ??
+            (r as any).ciclo_id ??
+            undefined;
+          const nombre =
+            (r as any).__cicloNombre ??
+            getCicloNombre(Number(cicId));
+          return nombre || (cicId != null ? String(cicId) : "");
+        },
+      },
+    ];
+
+    const varCols: ColumnsType<ReportRow> = (FIELD_ORDER as string[]).map((extendedKey) => {
+      const match = extendedKey.match(/^VAR(\d+)_/);
+      const n = match ? Number(match[1]) : undefined;
+      const simpleKey = n ? `VAR${n}` : extendedKey;
+      return {
+        title: prettyTitle(extendedKey),
+        dataIndex: simpleKey,
+        key: simpleKey,
+        ellipsis: true,
+        width: 160,
+        render: (value: any) => formatIfDate(value),
+      };
+    });
+
+    return [...extras, ...varCols];
+  }, [getEntidadLabel, getCicloNombre]);
+
+  useEffect(() => {
+    setColumns(buildColumns());
+  }, [buildColumns]);
+
+  /* =========================
+     Persistencia + trimestre actual
+     ========================= */
+  useEffect(() => {
+    const saved = localStorage.getItem("rep202_filters");
+    const { start, end } = getCurrentQuarterRange();
+    if (saved) {
+      const s = JSON.parse(saved);
+      form.setFieldsValue({
+        entidadId: Array.isArray(s.entidadId)
+          ? s.entidadId.map(Number)
+          : (s.entidadId != null ? [Number(s.entidadId)] : []),
+        cicloVida: Array.isArray(s.cicloVida)
+          ? s.cicloVida.map(Number)
+          : (s.cicloVida != null ? [Number(s.cicloVida)] : []),
+        fechaInicio: s.startDate ? dayjs(s.startDate) : start,
+        fechaFin: s.endDate ? dayjs(s.endDate) : end
+      });
+      setPage(s.page ?? 1);
+      setPageSize(s.pageSize ?? 20);
+    } else {
+      form.setFieldsValue({ fechaInicio: start, fechaFin: end, entidadId: [], cicloVida: [] });
+    }
+  }, [form]);
+
+  useEffect(() => {
+    const inicio = form.getFieldValue("fechaInicio") as dayjs.Dayjs | undefined;
+    const fin = form.getFieldValue("fechaFin") as dayjs.Dayjs | undefined;
+    localStorage.setItem(
+      "rep202_filters",
+      JSON.stringify({
+        entidadId: entidadIds,
+        cicloVida: ciclosVida,
+        page,
+        pageSize,
+        startDate: inicio ? inicio.format("YYYY-MM-DD") : undefined,
+        endDate: fin ? fin.format("YYYY-MM-DD") : undefined
+      })
+    );
+  }, [entidadIds, ciclosVida, page, pageSize, form]);
+
+  /* =========================
+     Fetch por ciclo (conservado por si lo usas en otro flujo)
      ========================= */
   const fetchFromApi = useCallback(
     async (ent?: number, cic?: number, startDate?: string, endDate?: string): Promise<ReportRow[]> => {
       if (ent == null || cic == null) {
-        message.warning("Selecciona una entidad y un ciclo de vida.");
         return [];
       }
       let urlApi = "";
@@ -496,6 +538,8 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
       }
       const resp = await axios.get(urlApi, {
         headers: { ...authHeaders },
+        timeout: 60000,
+        signal: controllerRef.current?.signal,
         params: {
           entidadId: ent,
           cicloVida: cic,
@@ -514,28 +558,73 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
   );
 
   /* =========================
-     Único botón: Buscar (acumula automáticamente)
+     NUEVO: Fetch batch (POST enviando arrays nativos)
+     ========================= */
+  const fetchBatchFromApi = useCallback(
+    async (
+      entIds: number[],
+      cicIds: number[],
+      startDate?: string,
+      endDate?: string
+    ): Promise<ReportRow[]> => {
+      const urlApi = `${apiBaseUrl}/reportesms/202/datareport202/report-multi`;
+
+      const payload = { entidadIds: entIds, ciclos: cicIds, startDate, endDate };
+
+      const resp = await axios.post(urlApi, payload, {
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
+        timeout: 10 * 60 * 1000,
+        signal: controllerRef.current?.signal,
+      });
+
+      const { rows } = parseApiRows(resp?.data);
+      return rows;
+    },
+    [apiBaseUrl, authHeaders]
+  );
+
+  /* =========================
+     Único botón: Buscar (acumula)
      ========================= */
   const handleBuscarAcumular = useCallback(async () => {
-    const ent: number | undefined = form.getFieldValue("entidadId");
-    const cic: number | undefined = form.getFieldValue("cicloVida");
-    const inicio = form.getFieldValue("fechaInicio") as dayjs.Dayjs | undefined;
-    const fin = form.getFieldValue("fechaFin") as dayjs.Dayjs | undefined;
+    if (loadingSearch) return;
+
+    if (controllerRef.current) controllerRef.current.abort();
+    controllerRef.current = new AbortController();
+
+    const entSel = (form.getFieldValue("entidadId") as number[] | undefined) ?? [];
+    const cicSel = (form.getFieldValue("cicloVida") as number[] | undefined) ?? [];
+    const inicio = form.getFieldValue("fechaInicio");
+    const fin = form.getFieldValue("fechaFin");
     const startDate = inicio ? inicio.format("YYYY-MM-DD") : undefined;
     const endDate = fin ? fin.format("YYYY-MM-DD") : undefined;
 
-    if (ent == null || cic == null) {
-      message.warning("Selecciona una entidad y un ciclo de vida.");
+    if (!entSel.length || !cicSel.length) {
+      message.warning("Selecciona al menos una entidad y un ciclo de vida.");
       return;
     }
 
     try {
       setLoadingSearch(true);
+      setProgress({ done: 0, total: 1 });
 
-      const fetched = await fetchFromApi(ent, cic, startDate, endDate);
-      const annotated = annotate(fetched, ent, cic);
+      const batchRows = await fetchBatchFromApi(entSel, cicSel, startDate, endDate);
+      setProgress({ done: 1, total: 1 });
 
-      // merge + dedupe con lo existente
+      // anotar etiquetas si faltan
+      const annotated = batchRows.map((r, i) => {
+        const entId = (r.__entidadId ?? (r as any).entidad_id) as number | undefined;
+        const cicId = (r.__cicloId ?? (r as any).__ciclo_id ?? (r as any).ciclo_id) as number | undefined;
+        const entLabel = (r as any).__entidadLabel ?? getEntidadLabel(entId);
+        const cicNombre = (r as any).__cicloNombre ?? getCicloNombre(cicId);
+        const key = r._Row ?? `${(r.consulta_id ?? (r as any).VAR4 ?? r.VAR4_NumeroDocumento ?? i)}__${entId ?? ""}__${cicId ?? ""}`;
+        return { ...r, __entidadId: entId, __entidadLabel: entLabel, __cicloId: cicId, __cicloNombre: cicNombre, _Row: key };
+      });
+
+      // merge con acumulado
       const map = new Map<string, ReportRow>();
       accumulated.forEach(r => r._Row && map.set(r._Row, r));
       annotated.forEach(r => r._Row && map.set(r._Row, r));
@@ -545,14 +634,19 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
       setPage(1);
 
       message.success(`Acumulado actualizado (+${annotated.length}). Total: ${merged.length}.`);
-    } catch (err) {
-      const e = err as AxiosError;
-      console.error(e);
-      message.error("No se pudo completar la búsqueda.");
+    } catch (err: any) {
+      if (axios.isCancel?.(err) || err?.name === "CanceledError" || err?.message?.includes("canceled")) {
+        message.info("Búsqueda cancelada.");
+      } else {
+        console.error(err);
+        message.error("No se pudo completar la búsqueda.");
+      }
     } finally {
       setLoadingSearch(false);
+      controllerRef.current = null;
+      setProgress(null);
     }
-  }, [form, fetchFromApi, accumulated]);
+  }, [form, fetchBatchFromApi, accumulated, loadingSearch, getEntidadLabel, getCicloNombre, sortByEntidadYCiclo]);
 
   /* =========================
      Paginación y opciones
@@ -578,7 +672,7 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
   const handleSearchEntidad = useCallback(
     (value: string) => {
       const v = value?.trim();
-      if (searchTimeout.current) window.clearTimeout(searchTimeout.current);
+      if (searchTimeout.current) (window as any).clearTimeout(searchTimeout.current);
       searchTimeout.current = window.setTimeout(() => {
         if (v.length >= 2) loadEntidades(v);
       }, 400);
@@ -608,10 +702,10 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
   const resetToCurrentQuarter = useCallback(() => {
     const { start, end } = getCurrentQuarterRange();
     form.resetFields(["entidadId", "cicloVida"]);
-    form.setFieldsValue({ fechaInicio: start, fechaFin: end });
-    setEntidadId(undefined);
-    setCicloVida(undefined);
-    setAccumulated([]);       // limpia acumulado
+    form.setFieldsValue({ fechaInicio: start, fechaFin: end, entidadId: [], cicloVida: [] });
+    setEntidadIds([]);
+    setCiclosVida([]);
+    setAccumulated([]);
     setPage(1);
     setPageSize(20);
     entidadCodigoRef.current = undefined;
@@ -626,6 +720,36 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
     const end = start + pageSize;
     return effectiveRows.slice(start, end);
   }, [effectiveRows, page, pageSize]);
+
+  /* =========================
+     Chips de filtros activos (encima de la tabla)
+     ========================= */
+  const selectedEntidades = useMemo(
+    () => entidadIds.map((id) => ({ id, nombre: getEntidadLabel(id) })).filter(e => !!e.nombre),
+    [entidadIds, getEntidadLabel]
+  );
+  const selectedCiclos = useMemo(
+    () => ciclosVida.map((id) => ({ id, nombre: getCicloNombre(id) })).filter(c => !!c.nombre),
+    [ciclosVida, getCicloNombre]
+  );
+
+  const removeEntidad = useCallback(
+    (id: number) => {
+      const next = entidadIds.filter(x => x !== id);
+      form.setFieldsValue({ entidadId: next });
+      setEntidadIds(next);
+    },
+    [entidadIds, form]
+  );
+
+  const removeCiclo = useCallback(
+    (id: number) => {
+      const next = ciclosVida.filter(x => x !== id);
+      form.setFieldsValue({ cicloVida: next });
+      setCiclosVida(next);
+    },
+    [ciclosVida, form]
+  );
 
   /* =========================
      Render
@@ -669,18 +793,21 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
                 <Col xs={24} md={12} lg={6}>
                   <Form.Item label="Entidad" name="entidadId">
                     <Select
+                      mode="multiple"
                       showSearch
                       allowClear
-                      placeholder="Selecciona una entidad"
+                      placeholder="Selecciona una o varias entidades"
                       onSearch={handleSearchEntidad}
                       filterOption={false}
                       optionFilterProp="label"
                       options={entidadOptions}
                       style={{ width: "100%" }}
+                      maxTagCount="responsive"
                       onSelect={(_, option) => {
                         entidadCodigoRef.current = (option as any)?.codigo;
                       }}
                       onClear={() => { entidadCodigoRef.current = undefined; }}
+                      disabled={loadingSearch}
                     />
                   </Form.Item>
                 </Col>
@@ -688,18 +815,21 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
                 <Col xs={24} md={12} lg={6}>
                   <Form.Item label="Ciclo de vida" name="cicloVida">
                     <Select
+                      mode="multiple"
                       allowClear
-                      placeholder="Selecciona un ciclo de vida"
+                      placeholder="Selecciona uno o varios ciclos"
                       optionFilterProp="label"
                       options={cicloOptions}
                       style={{ width: "100%" }}
+                      maxTagCount="responsive"
+                      disabled={loadingSearch}
                     />
                   </Form.Item>
                 </Col>
 
                 <Col xs={24} md={3}>
                   <Form.Item label="Fecha inicio" name="fechaInicio">
-                    <DatePicker format="YYYY-MM-DD" style={{ width: "100%" }} />
+                    <DatePicker format="YYYY-MM-DD" style={{ width: "100%" }} disabled={loadingSearch}/>
                   </Form.Item>
                 </Col>
 
@@ -727,8 +857,67 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
           </Card>
         </Col>
 
+        {(selectedEntidades.length > 0 || selectedCiclos.length > 0) && (
+          <Col span={24}>
+            <Card size="small" style={{ borderRadius: 14 }}>
+              <Space direction="vertical" style={{ width: "100%" }}>
+                <Space align="center">
+                  <FilterOutlined />
+                  <Text strong>Filtros activos</Text>
+                </Space>
+                <Space size={[8, 8]} wrap>
+                  {selectedEntidades.map((e) => (
+                    <Tag
+                      key={`ent-${e.id}`}
+                      color="blue"
+                      closable
+                      onClose={(ev) => {
+                        ev.preventDefault();
+                        removeEntidad(e.id);
+                      }}
+                    >
+                      Entidad: {e.nombre}
+                    </Tag>
+                  ))}
+                  {selectedCiclos.map((c) => (
+                    <Tag
+                      key={`cic-${c.id}`}
+                      color="green"
+                      closable
+                      onClose={(ev) => {
+                        ev.preventDefault();
+                        removeCiclo(c.id);
+                      }}
+                    >
+                      Ciclo: {c.nombre}
+                    </Tag>
+                  ))}
+                </Space>
+                <Divider style={{ margin: "8px 0" }} />
+                <Space size="middle" wrap>
+                  <Tag>
+                    <Text type="secondary">Entidades:</Text>&nbsp;
+                    <Text strong>{selectedEntidades.length}</Text>
+                  </Tag>
+                  <Tag>
+                    <Text type="secondary">Ciclos:</Text>&nbsp;
+                    <Text strong>{selectedCiclos.length}</Text>
+                  </Tag>
+                </Space>
+              </Space>
+            </Card>
+          </Col>
+        )}
+
         <Col span={24}>
           <Card size="small" style={{ borderRadius: 14 }} styles={{ body: { padding: 0 } }}>
+            {progress && (
+              <div style={{ padding: 8 }}>
+                <Typography.Text type="secondary">
+                  Procesando {progress.done} / {progress.total} combinaciones...
+                </Typography.Text>
+              </div>
+            )}
             <Table<ReportRow>
               size="middle"
               rowKey={"_Row"}
