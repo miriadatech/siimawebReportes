@@ -387,12 +387,12 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
     return m;
   }, [ciclos]);
 
-  const makeKey = (r: ReportRow, entId?: number, cicId?: number, idx?: number) => {
+/*   const makeKey = (r: ReportRow, entId?: number, cicId?: number, idx?: number) => {
     const pid = (r.consulta_id ?? r.VAR4_NumeroDocumento ?? idx ?? Math.random()).toString();
     return `${pid}__${entId ?? ""}__${cicId ?? ""}`;
-  };
+  }; */
 
-  const annotate = (arr: ReportRow[], entId?: number, cicId?: number) => {
+/*   const annotate = (arr: ReportRow[], entId?: number, cicId?: number) => {
     const entLabel = getEntidadLabel(entId);
     const cicNombre = getCicloNombre(cicId);
     return arr.map((r, i) => ({
@@ -403,7 +403,7 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
       __cicloNombre: cicNombre,
       _Row: makeKey(r, entId, cicId, i),
     }));
-  };
+  }; */
 
   const sortByEntidadYCiclo = (arr: ReportRow[]) =>
     [...arr].sort((a, b) => {
@@ -521,7 +521,7 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
   /* =========================
      Fetch por ciclo (conservado por si lo usas en otro flujo)
      ========================= */
-  const fetchFromApi = useCallback(
+/*   const fetchFromApi = useCallback(
     async (ent?: number, cic?: number, startDate?: string, endDate?: string): Promise<ReportRow[]> => {
       if (ent == null || cic == null) {
         return [];
@@ -555,7 +555,7 @@ const Reporte202: React.FC<Reporte202Props> = ({ apiBaseUrl, token }) => {
       return rows;
     },
     [apiBaseUrl, authHeaders]
-  );
+  ); */
 
   /* =========================
      NUEVO: Fetch batch (POST enviando arrays nativos)
